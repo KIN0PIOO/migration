@@ -13,8 +13,18 @@ def generate_sqls(mapping_rule, last_error=None):
     if last_error:
         error_prompt = f"\n[이전 에러 피드백 로그 반영]\n에러내용: {last_error}"
 
-    # 임의의 프롬프트 조합 결과라고 가정
-    migration_sql = f"INSERT INTO {mapping_rule.to_table} ({mapping_rule.to_columns}) SELECT {mapping_rule.from_columns} FROM {mapping_rule.from_table}; {error_prompt}"
+    # 타겟 컬럼들 추출 (공백 제거 후 모두 TEXT 타입화)
+    columns_def = [col.strip() + " TEXT" for col in mapping_rule.to_columns.split(",")]
+    
+    # 1. 대상 테이블이 없다면 자동으로 뼈대부터 만들어내는 보호 구문 (DDL)
+    create_table_ddl = f"CREATE TABLE IF NOT EXISTS {mapping_rule.to_table} (\n    " + ",\n    ".join(columns_def) + "\n);"
+    
+    # 2. 실제 데이터 이관 구문 (DML)
+    insert_dml = f"INSERT INTO {mapping_rule.to_table} ({mapping_rule.to_columns}) SELECT {mapping_rule.from_columns} FROM {mapping_rule.from_table};"
+    
+    # 3. LLM 쿼리 응답(멀티 스크립트)으로 직렬화
+    migration_sql = f"{create_table_ddl}\n{insert_dml}\n{error_prompt}".strip()
+    
     verification_sql = f"SELECT COUNT(*) FROM {mapping_rule.to_table} t1 FULL JOIN {mapping_rule.from_table} t2 ON ... WHERE mismatch"
     
     return migration_sql, verification_sql

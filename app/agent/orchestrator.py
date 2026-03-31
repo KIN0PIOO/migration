@@ -27,18 +27,15 @@ class MigrationOrchestrator:
                 logger.debug(f"[Orchestrator] map_id={mapping_rule.map_id} | 2. 쿼리 파싱 및 DB 실행")
                 execute_migration(migration_sql)
                 
-                # 3. 데이터 검증 (건수, Null 비교 등)
-                logger.debug(f"[Orchestrator] map_id={mapping_rule.map_id} | 3. 양 DB 정합성 쿼리(Verification) 실행")
-                is_valid, verify_msg = execute_verification(verification_sql)
+                # 3. 데이터 검증 (사용자 요청에 의해 임시 제외됨)
+                # logger.debug(f"[Orchestrator] map_id={mapping_rule.map_id} | 3. 양 DB 정합성 쿼리(Verification) 실행")
+                # is_valid, verify_msg = execute_verification(verification_sql)
                 
-                if is_valid:
-                    # 모든 검증을 통과하면 최종 성공
-                    update_job_status(mapping_rule.map_id, "SUCCESS")
-                    log_business_history(mapping_rule.map_id, "SUCCESS", "All Verification Passed")
-                    logger.info(f"[Orchestrator] map_id={mapping_rule.map_id} | >>> 성공적으로 완료됨 <<<")
-                    return
-                else:
-                    raise VerificationFailError(f"Verification Failed: {verify_msg}")
+                # 검증 단계 제외: 실행 무사고 시 바로 성공 처리
+                update_job_status(mapping_rule.map_id, "SUCCESS")
+                log_business_history(mapping_rule.map_id, "SUCCESS", "Migration Executed Successfully (Verification Skipped)")
+                logger.info(f"[Orchestrator] map_id={mapping_rule.map_id} | >>> 마이그레이션 성공 (검증 생략) <<<")
+                return
 
             except LLMRateLimitError as e:
                 # API 제한은 재시도 백오프를 길게 줌
@@ -48,8 +45,8 @@ class MigrationOrchestrator:
                 last_error = str(e)
 
             except (DBSqlError, VerificationFailError) as e:
-                # 실행/검증 실패 시 에러 사유를 LLM에게 다시 넣어주기 위해 last_error 세팅
-                logger.error(f"[Orchestrator] map_id={mapping_rule.map_id} | >> 실행/검증 중 에러 발생 (사유: {str(e)})")
+                # 실행 실패 시 에러 사유를 LLM에게 다시 넣어주기 위해 last_error 세팅
+                logger.error(f"[Orchestrator] map_id={mapping_rule.map_id} | >> 실행 중 DB 에러 발생 (사유: {str(e)})")
                 log_business_history(mapping_rule.map_id, "RETRY", str(e), retry_count)
                 
                 retry_count += 1

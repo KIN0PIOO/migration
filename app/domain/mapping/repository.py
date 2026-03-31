@@ -1,38 +1,93 @@
 from app.core.logger import logger
 from app.domain.mapping.models import MappingRule
-
-# 임시 메모리 DB 역할 (테스트용 데이터)
-_MOCK_MAPPING_RULES = [
-    MappingRule(1, "legacy_users", "new_users", "user_id, user_nm", "id, name", 1, "Y", "Y"),
-    MappingRule(2, "legacy_orders", "new_orders", "ord_id, ord_amt", "id, amount", 2, "Y", "Y"),
-]
+from app.core.db import get_connection
 
 def get_pending_jobs() -> list[MappingRule]:
-    """WORK_YN='Y' 이고 USE_YN='Y'인 작업을 EXEC_ORDER 순으로 가져옵니다."""
+    """USE_YN='Y' 이고 TASK_TARGET='Y'인 작업을 EXE_ORDER 순으로 가져옵니다."""
     logger.debug("[Repository] DB에서 작업 대상을 스캔합니다...")
-    jobs = [rule for rule in _MOCK_MAPPING_RULES if rule.work_yn == 'Y' and rule.use_yn == 'Y']
-    # 순서 정렬
-    jobs.sort(key=lambda x: x.exec_order)
+    jobs = []
+    
+    query = """
+        SELECT MAP_ID, MAP_TYPE, FROM_TABLE, TO_TABLE, FROM_COLUMNS, 
+               TO_COLUMNS, USE_YN, TASK_TARGET, EXE_ORDER, 
+               MIG_SQL, VERIFY_SQL1, VERIFY_SQL2, STATUS, LOG, 
+               UPD_DATE, CORRECT_SQL, USER_EDITED
+        FROM MAPPING_RULES
+        WHERE USE_YN = 'Y' 
+          AND TASK_TARGET = 'Y' 
+          AND (STATUS IS NULL OR STATUS = 'PENDING')
+        ORDER BY EXE_ORDER ASC
+    """
+    
+    try:
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query)
+            rows = cursor.fetchall()
+            
+            for row in rows:
+                rule = MappingRule(
+                    map_id=row[0],
+                    map_type=row[1],
+                    from_table=row[2],
+                    to_table=row[3],
+                    from_columns=row[4],
+                    to_columns=row[5],
+                    use_yn=row[6],
+                    task_target=row[7],
+                    exe_order=row[8],
+                    mig_sql=row[9],
+                    verify_sql1=row[10],
+                    verify_sql2=row[11],
+                    status=row[12],
+                    log=row[13],
+                    upd_date=row[14],
+                    correct_sql=row[15],
+                    user_edited=row[16]
+                )
+                jobs.append(rule)
+                
+    except Exception as e:
+        logger.error(f"[Repository] 작업 대상을 조회하는 중 오류 발생: {e}")
+        
     return jobs
 
 def lock_job(map_id: int) -> bool:
     """동시성 제어를 위해 해당 Job의 상태를 즉시 'P'(진행중) 등으로 바꿉니다."""
-    logger.debug(f"[Repository] map_id={map_id} 작업을 선점(Lock)합니다. 상태 -> P")
-    for rule in _MOCK_MAPPING_RULES:
-        if rule.map_id == map_id and rule.work_yn == 'Y':
-            rule.work_yn = 'P' # Processing 으로 변경
-            return True
-    return False
+    logger.debug(f"[Repository] map_id={map_id} 작업을 선점(Lock)합니다. 상태 -> RUNNING")
+    
+    query = """
+        UPDATE MAPPING_RULES 
+        SET STATUS = 'RUNNING', UPD_DATE = CURRENT_TIMESTAMP
+        WHERE MAP_ID = ? AND (STATUS IS NULL OR STATUS = 'PENDING')
+    """
+    
+    try:
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, (map_id,))
+            if cursor.rowcount > 0:
+                conn.commit()
+                return True
+            return False
+    except Exception as e:
+        logger.error(f"[Repository] 작업 선점 중 오류 발생 map_id={map_id}: {e}")
+        return False
 
 def update_job_status(map_id: int, status: str):
     """작업 성공/실패 시 상태값을 변경합니다."""
     logger.info(f"[Repository] map_id={map_id} | DB 상태를 {status} 로 업데이트합니다.")
-    for rule in _MOCK_MAPPING_RULES:
-        if rule.map_id == map_id:
-            if status == "SUCCESS" or status == "FAIL":
-                rule.work_yn = 'N'  # 종료
-            elif status == "RETRY":
-                rule.work_yn = 'P'  # 아직 진행중
-            elif status == "RUNNING":
-                rule.work_yn = 'P'
-            break
+    
+    query = """
+        UPDATE MAPPING_RULES 
+        SET STATUS = ?, UPD_DATE = CURRENT_TIMESTAMP
+        WHERE MAP_ID = ?
+    """
+    
+    try:
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, (status, map_id))
+            conn.commit()
+    except Exception as e:
+        logger.error(f"[Repository] 작업 상태 업데이트 중 오류 발생 map_id={map_id}: {e}")
