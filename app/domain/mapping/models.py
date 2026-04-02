@@ -22,4 +22,5 @@ class MappingRule:
     upd_date: Optional[datetime] = None
     correct_sql: Optional[str] = None
     user_edited: Optional[str] = None
+    batch_count: int = 0
 

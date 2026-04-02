@@ -29,16 +29,22 @@ def log_business_history(map_id: int, status: str, message: str, retry_count: in
         
     logger.info(f"[HistoryRepo] map_id={map_id} | Business Log 저장 -> [{status}] (Retry: {retry_count}) : {msg_str[:50]}")
     
+    formatted_msg = f"[{status}] (Retry: {retry_count}) {msg_str}"
+    
     query = """
         UPDATE MAPPING_RULES
-        SET LOG = ?, UPD_DATE = CURRENT_TIMESTAMP
+        SET LOG = CASE 
+            WHEN LOG IS NULL OR LOG = '' THEN ?
+            ELSE LOG || CHAR(10) || ? 
+        END, 
+        UPD_DATE = CURRENT_TIMESTAMP
         WHERE MAP_ID = ?
     """
     
     try:
         with get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute(query, (msg_str, map_id))
+            cursor.execute(query, (formatted_msg, formatted_msg, map_id))
             conn.commit()
     except Exception as e:
         logger.error(f"[HistoryRepo] 비즈니스 이력 기록 중 오류: {e}")

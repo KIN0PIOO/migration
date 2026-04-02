@@ -11,7 +11,7 @@ def get_pending_jobs() -> list[MappingRule]:
         SELECT MAP_ID, MAP_TYPE, FROM_TABLE, TO_TABLE, FROM_COLUMNS, 
                TO_COLUMNS, USE_YN, TASK_TARGET, EXE_ORDER, 
                MIG_SQL, VERIFY_SQL1, VERIFY_SQL2, STATUS, LOG, 
-               UPD_DATE, CORRECT_SQL, USER_EDITED
+               UPD_DATE, CORRECT_SQL, USER_EDITED, BATCH_COUNT
         FROM MAPPING_RULES
         WHERE USE_YN = 'Y' 
           AND TASK_TARGET = 'Y' 
@@ -43,7 +43,8 @@ def get_pending_jobs() -> list[MappingRule]:
                     log=row[13],
                     upd_date=row[14],
                     correct_sql=row[15],
-                    user_edited=row[16]
+                    user_edited=row[16],
+                    batch_count=row[17] if row[17] is not None else 0
                 )
                 jobs.append(rule)
                 
@@ -58,7 +59,7 @@ def lock_job(map_id: int) -> bool:
     
     query = """
         UPDATE MAPPING_RULES 
-        SET STATUS = 'RUNNING', UPD_DATE = CURRENT_TIMESTAMP
+        SET STATUS = 'RUNNING', UPD_DATE = CURRENT_TIMESTAMP, BATCH_COUNT = COALESCE(BATCH_COUNT, 0) + 1
         WHERE MAP_ID = ? AND (STATUS IS NULL OR STATUS = 'PENDING')
     """
     

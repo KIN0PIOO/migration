@@ -45,7 +45,8 @@ def init_db():
             LOG TEXT,
             UPD_DATE TIMESTAMP,
             CORRECT_SQL TEXT,
-            USER_EDITED TEXT
+            USER_EDITED TEXT,
+            BATCH_COUNT INTEGER DEFAULT 0
         )
         """)
 
@@ -110,44 +111,44 @@ def init_db():
         mapping_data = [
 
             # ✅ 정상 케이스
-            (1, "TABLE", "user_old", "user_new",
+            (1, "SIMPLE", "user_old", "user_new",
              "id, name, age", "user_id, username, age",
-             "Y", "Y", 1, None, None, None, None, None, datetime.now(), None, None),
+             "Y", "Y", 1, None, None, None, None, None, datetime.now(), None, None, 0),
 
             # ❗ 컬럼 mismatch (존재하지 않는 컬럼)
-            (2, "TABLE", "user_old", "user_new",
+            (2, "SIMPLE", "user_old", "user_new",
              "id, wrong_column", "user_id, username",
-             "Y", "Y", 2, None, None, None, None, None, datetime.now(), None, None),
+             "Y", "Y", 2, None, None, None, None, None, datetime.now(), None, None, 0),
 
             # ❗ 테이블 없음
-            (3, "TABLE", "not_exist_table", "user_new",
+            (3, "SIMPLE", "not_exist_table", "user_new",
              "id, name", "user_id, username",
-             "Y", "Y", 3, None, None, None, None, None, datetime.now(), None, None),
+             "Y", "Y", 3, None, None, None, None, None, datetime.now(), None, None, 0),
 
             # 🔁 재시도 케이스 (나중에 일부러 실패 유도)
-            (4, "TABLE", "order_old", "order_new",
+            (4, "SIMPLE", "order_old", "order_new",
              "id, user_id, amount", "order_id, user_id, amount",
-             "Y", "Y", 4, None, None, None, None, None, datetime.now(), None, None),
+             "Y", "Y", 4, None, None, None, None, None, datetime.now(), None, None, 0),
 
             # ❌ USE_YN = N (스킵 테스트)
-            (5, "TABLE", "user_old", "user_new",
+            (5, "SIMPLE", "user_old", "user_new",
              "id, name", "user_id, username",
-             "N", "Y", 5, None, None, None, None, None, datetime.now(), None, None),
+             "N", "Y", 5, None, None, None, None, None, datetime.now(), None, None, 0),
 
             # ❌ 이미 SUCCESS 상태
-            (6, "TABLE", "user_old", "user_new",
+            (6, "SIMPLE", "user_old", "user_new",
              "id, name", "user_id, username",
-             "Y", "Y", 6, None, None, None, "SUCCESS", None, datetime.now(), None, None),
+             "Y", "Y", 6, None, None, None, "SUCCESS", None, datetime.now(), None, None, 0),
 
             # ❌ PROCESSING 상태 (lock 테스트)
-            (7, "TABLE", "user_old", "user_new",
+            (7, "SIMPLE", "user_old", "user_new",
              "id, name", "user_id, username",
-             "Y", "Y", 7, None, None, None, "PROCESSING", None, datetime.now(), None, None),
+             "Y", "Y", 7, None, None, None, "PROCESSING", None, datetime.now(), None, None, 0),
 
         ]
 
         cursor.executemany("""
-        INSERT INTO MAPPING_RULES VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO MAPPING_RULES VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, mapping_data)
 
         conn.commit()
