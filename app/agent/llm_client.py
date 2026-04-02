@@ -1,13 +1,18 @@
-from app.core.exceptions import LLMRateLimitError
+from app.core.exceptions import LLMRateLimitError, LLMConnectionError, LLMTokenLimitError
 import random
 
 def generate_sqls(mapping_rule, last_error=None):
     """
     LLM API를 호출하여 Migration SQL과 Verification SQL을 생성 (Mock)
     """
-    #20퍼 확률로 에러나게
-    if random.random() < 0.2:
+    # 20퍼 확률로 에러나게
+    rand_val = random.random()
+    if rand_val < 0.10:
         raise LLMRateLimitError("OpenAI API limit exceeded (HTTP 429).")
+    elif rand_val < 0.15:
+        raise LLMConnectionError("Timeout: Failed to connect to LLM endpoint.")
+    elif rand_val < 0.20:
+        raise LLMTokenLimitError("Token boundary exceeded for this model.")
         
     if mapping_rule.correct_sql:
         # 사용자가 CORRECT_SQL을 제공한 경우, Mock LLM은 이를 바로 정답으로 생성했다고 시뮬레이션 합니다.

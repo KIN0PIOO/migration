@@ -14,8 +14,7 @@ def get_pending_jobs() -> list[MappingRule]:
                UPD_DATE, CORRECT_SQL, USER_EDITED, BATCH_COUNT
         FROM MAPPING_RULES
         WHERE USE_YN = 'Y' 
-          AND TASK_TARGET = 'Y' 
-          AND (STATUS IS NULL OR STATUS = 'PENDING')
+          AND TASK_TARGET = 'Y'
         ORDER BY EXE_ORDER ASC
     """
     
@@ -60,7 +59,7 @@ def lock_job(map_id: int) -> bool:
     query = """
         UPDATE MAPPING_RULES 
         SET STATUS = 'RUNNING', UPD_DATE = CURRENT_TIMESTAMP, BATCH_COUNT = COALESCE(BATCH_COUNT, 0) + 1
-        WHERE MAP_ID = ? AND (STATUS IS NULL OR STATUS = 'PENDING')
+        WHERE MAP_ID = ? AND USE_YN = 'Y'
     """
     
     try:
@@ -76,12 +75,12 @@ def lock_job(map_id: int) -> bool:
         return False
 
 def update_job_status(map_id: int, status: str):
-    """작업 성공/실패 시 상태값을 변경합니다."""
-    logger.info(f"[Repository] map_id={map_id} | DB 상태를 {status} 로 업데이트합니다.")
+    """작업 통과/실패 시 상태값을 변경하고, 작업을 마쳤으므로 USE_YN을 N으로 업데이트합니다."""
+    logger.info(f"[Repository] map_id={map_id} | DB 상태를 {status} 로 업데이트하고 USE_YN = 'N' 처리합니다.")
     
     query = """
         UPDATE MAPPING_RULES 
-        SET STATUS = ?, UPD_DATE = CURRENT_TIMESTAMP
+        SET STATUS = ?, USE_YN = 'N', UPD_DATE = CURRENT_TIMESTAMP
         WHERE MAP_ID = ?
     """
     
