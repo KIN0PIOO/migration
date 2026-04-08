@@ -52,11 +52,14 @@ def generate_sqls(mapping_rule, last_error=None, last_sql=None):
 
     [필수 요구사항]
     1. Migration SQL: 
+       - 전달받은 소스 테이블명('{from_table}')과 타겟 테이블명('{to_table}')을 절대적으로 준수하십시오.
+       - 소스 테이블명에 'HR.' 등의 접두어가 없다면 임의로 붙이지 마십시오. (hallucination 주의)
        - 타겟 테이블이 없으면 생성하는 DDL과 데이터를 옮기는 SELECT INSERT DML을 포함하십시오.
        - Oracle 11g 환경이므로 레거시 호환 문법을 사용하십시오.
        - 여러 SQL 문장이 포함될 경우 각 문장은 반드시 슬래시(/) 단독 라인으로 구분하십시오.
        
     2. Verification SQL (2단계 정합성 검증):
+       - 반드시 위에서 사용한 정확한 소스/타겟 테이블명만 사용하십시오.
        - 1단계: 전체 결과 건수(Row Count) 비교.
        - 2단계: 매핑된 모든 컬럼에 대해 Null이 아닌(유효한) 데이터의 개수가 일치하는지 비교.
        - 모든 차이값의 절대값 합계를 구하여 단일 컬럼 'DIFF'로 반환하는 SQL을 작성하십시오.
