@@ -124,8 +124,8 @@ def setup_cases():
         # --- CASE 1: EMP 전체 이관 (SIMPLE) ---
         mid_var = cursor.var(oracledb.NUMBER)
         cursor.execute("""
-            INSERT INTO MAPPING_RULES (MAP_TYPE, FROM_TABLE, TO_TABLE, USE_YN, TASK_TARGET, PRIORITY, STATUS)
-            VALUES ('SIMPLE', 'EMP', 'TGT_EMP', 'Y', 'Y', 1, '')
+            INSERT INTO MAPPING_RULES (MAP_ID, MAP_TYPE, FROM_TABLE, TO_TABLE, USE_YN, TASK_TARGET, PRIORITY, STATUS)
+            VALUES (MAPPING_RULES_SEQ.NEXTVAL, 'SIMPLE', 'EMP', 'TGT_EMP', 'Y', 'Y', 1, '')
             RETURNING MAP_ID INTO :mid
         """, mid=mid_var)
         map_id_1 = int(mid_var.getvalue()[0])
@@ -136,14 +136,17 @@ def setup_cases():
             (7, 'COMM', 'COMMISSION'), (8, 'DEPTNO', 'DEPT_ID')
         ]
         for seq, f, t in emp_cols:
-            cursor.execute("INSERT INTO MAPPING_RULE_DETAIL (MAP_ID, SEQ, FROM_COLUMN, TO_COLUMN) VALUES (:1, :2, :3, :4)", (map_id_1, seq, f, t))
+            cursor.execute("""
+                INSERT INTO MAPPING_RULE_DETAIL (MAP_DETAIL_ID, MAP_ID, SEQ, FROM_COLUMN, TO_COLUMN) 
+                VALUES (MAPPING_RULE_DETAIL_SEQ.NEXTVAL, :1, :2, :3, :4)
+            """, (map_id_1, seq, f, t))
         print(f"Case 1 (EMP) added. MAP_ID: {map_id_1}")
 
         # --- CASE 2: DEPT 전체 이관 (SIMPLE) ---
         mid_var = cursor.var(oracledb.NUMBER)
         cursor.execute("""
-            INSERT INTO MAPPING_RULES (MAP_TYPE, FROM_TABLE, TO_TABLE, USE_YN, TASK_TARGET, PRIORITY, STATUS)
-            VALUES ('SIMPLE', 'DEPT', 'TGT_DEPT', 'Y', 'Y', 2, '')
+            INSERT INTO MAPPING_RULES (MAP_ID, MAP_TYPE, FROM_TABLE, TO_TABLE, USE_YN, TASK_TARGET, PRIORITY, STATUS)
+            VALUES (MAPPING_RULES_SEQ.NEXTVAL, 'SIMPLE', 'DEPT', 'TGT_DEPT', 'Y', 'Y', 2, '')
             RETURNING MAP_ID INTO :mid
         """, mid=mid_var)
         map_id_2 = int(mid_var.getvalue()[0])
@@ -152,14 +155,17 @@ def setup_cases():
             (1, 'DEPTNO', 'DEPT_ID'), (2, 'DNAME', 'DEPT_NAME'), (3, 'LOC', 'LOCATION')
         ]
         for seq, f, t in dept_cols:
-            cursor.execute("INSERT INTO MAPPING_RULE_DETAIL (MAP_ID, SEQ, FROM_COLUMN, TO_COLUMN) VALUES (:1, :2, :3, :4)", (map_id_2, seq, f, t))
+            cursor.execute("""
+                INSERT INTO MAPPING_RULE_DETAIL (MAP_DETAIL_ID, MAP_ID, SEQ, FROM_COLUMN, TO_COLUMN) 
+                VALUES (MAPPING_RULE_DETAIL_SEQ.NEXTVAL, :1, :2, :3, :4)
+            """, (map_id_2, seq, f, t))
         print(f"Case 2 (DEPT) added. MAP_ID: {map_id_2}")
 
         # --- CASE 3: EMP + DEPT 조인 이관 (COMPLEX) ---
         mid_var = cursor.var(oracledb.NUMBER)
         cursor.execute("""
-            INSERT INTO MAPPING_RULES (MAP_TYPE, FROM_TABLE, TO_TABLE, USE_YN, TASK_TARGET, PRIORITY, STATUS)
-            VALUES ('COMPLEX', 'EMP E JOIN DEPT D ON E.DEPTNO = D.DEPTNO', 'TGT_EMP_DEPT', 'Y', 'Y', 3, '')
+            INSERT INTO MAPPING_RULES (MAP_ID, MAP_TYPE, FROM_TABLE, TO_TABLE, USE_YN, TASK_TARGET, PRIORITY, STATUS)
+            VALUES (MAPPING_RULES_SEQ.NEXTVAL, 'COMPLEX', 'EMP E JOIN DEPT D ON E.DEPTNO = D.DEPTNO', 'TGT_EMP_DEPT', 'Y', 'Y', 3, '')
             RETURNING MAP_ID INTO :mid
         """, mid=mid_var)
         map_id_3 = int(mid_var.getvalue()[0])
@@ -171,27 +177,32 @@ def setup_cases():
             (4, 'E.SAL', 'SALARY')
         ]
         for seq, f, t in join_cols:
-            cursor.execute("INSERT INTO MAPPING_RULE_DETAIL (MAP_ID, SEQ, FROM_COLUMN, TO_COLUMN) VALUES (:1, :2, :3, :4)", (map_id_3, seq, f, t))
+            cursor.execute("""
+                INSERT INTO MAPPING_RULE_DETAIL (MAP_DETAIL_ID, MAP_ID, SEQ, FROM_COLUMN, TO_COLUMN) 
+                VALUES (MAPPING_RULE_DETAIL_SEQ.NEXTVAL, :1, :2, :3, :4)
+            """, (map_id_3, seq, f, t))
         print(f"Case 3 (EMP-DEPT JOIN) added. MAP_ID: {map_id_3}")
 
         # --- 스트레스 테스트 시나리오 (EMP 기반) ---
-        # 4-7 케이스 (생략 가능하지만 일관성을 위해 유지)
         for i, tbl_name in enumerate(['FAIL_ONCE_EMP', 'FAIL_TWICE_EMP', 'FAIL_ALWAYS_EMP', 'BATCH_FAIL_EMP'], 4):
             mid_var = cursor.var(oracledb.NUMBER)
             cursor.execute("""
-                INSERT INTO MAPPING_RULES (MAP_TYPE, FROM_TABLE, TO_TABLE, USE_YN, TASK_TARGET, PRIORITY, STATUS)
-                VALUES ('SIMPLE', :1, :2, 'Y', 'Y', :3, '')
+                INSERT INTO MAPPING_RULES (MAP_ID, MAP_TYPE, FROM_TABLE, TO_TABLE, USE_YN, TASK_TARGET, PRIORITY, STATUS)
+                VALUES (MAPPING_RULES_SEQ.NEXTVAL, 'SIMPLE', :1, :2, 'Y', 'Y', :3, '')
                 RETURNING MAP_ID INTO :mid
             """, (tbl_name, f'TGT_CASE_{i}', i, mid_var))
             mid = int(mid_var.getvalue()[0])
             for seq, f, t in emp_cols[:3]:
-                cursor.execute("INSERT INTO MAPPING_RULE_DETAIL (MAP_ID, SEQ, FROM_COLUMN, TO_COLUMN) VALUES (:1, :2, :3, :4)", (mid, seq, f, t))
+                cursor.execute("""
+                    INSERT INTO MAPPING_RULE_DETAIL (MAP_DETAIL_ID, MAP_ID, SEQ, FROM_COLUMN, TO_COLUMN) 
+                    VALUES (MAPPING_RULE_DETAIL_SEQ.NEXTVAL, :1, :2, :3, :4)
+                """, (mid, seq, f, t))
 
         # --- CASE 8: EMP + SALGRADE 복합 변환 (COMPLEX Example) ---
         mid_var = cursor.var(oracledb.NUMBER)
         cursor.execute("""
-            INSERT INTO MAPPING_RULES (MAP_TYPE, FROM_TABLE, TO_TABLE, USE_YN, TASK_TARGET, PRIORITY, STATUS)
-            VALUES ('COMPLEX', 'EMP E JOIN SALGRADE S ON E.SAL BETWEEN S.LOSAL AND S.HISAL', 'EMP_SAL_COMPLEX', 'Y', 'Y', 8, '')
+            INSERT INTO MAPPING_RULES (MAP_ID, MAP_TYPE, FROM_TABLE, TO_TABLE, USE_YN, TASK_TARGET, PRIORITY, STATUS)
+            VALUES (MAPPING_RULES_SEQ.NEXTVAL, 'COMPLEX', 'EMP E JOIN SALGRADE S ON E.SAL BETWEEN S.LOSAL AND S.HISAL', 'EMP_SAL_COMPLEX', 'Y', 'Y', 8, '')
             RETURNING MAP_ID INTO :mid
         """, mid=mid_var)
         map_id_8 = int(mid_var.getvalue()[0])
@@ -205,7 +216,10 @@ def setup_cases():
             (6, "NVL(E.COMM, 0)", 'COMM_FIXED')
         ]
         for seq, f, t in real_complex_cols:
-            cursor.execute("INSERT INTO MAPPING_RULE_DETAIL (MAP_ID, SEQ, FROM_COLUMN, TO_COLUMN) VALUES (:1, :2, :3, :4)", (map_id_8, seq, f, t))
+            cursor.execute("""
+                INSERT INTO MAPPING_RULE_DETAIL (MAP_DETAIL_ID, MAP_ID, SEQ, FROM_COLUMN, TO_COLUMN) 
+                VALUES (MAPPING_RULE_DETAIL_SEQ.NEXTVAL, :1, :2, :3, :4)
+            """, (map_id_8, seq, f, t))
         print(f"Case 8 (EMP-SALGRADE Complex) added. MAP_ID: {map_id_8}")
 
         conn.commit()
