@@ -35,7 +35,7 @@ def setup_cases():
         cursor.execute("DELETE FROM MAPPING_RULES")
         
         # 타겟 테이블들도 초기화 (실험을 위해 매번 새로 생성되게 함)
-        target_tables = ['TGT_EMPLOYEES', 'TGT_JOBS', 'TGT_EMP_JOB_JOIN']
+        target_tables = ['TGT_EMPLOYEES', 'TGT_JOBS', 'TGT_EMP_JOB_JOIN', 'EMP_DEPT_COMPLEX']
         for table in target_tables:
             try:
                 cursor.execute(f"DROP TABLE {table}")
@@ -145,6 +145,26 @@ def setup_cases():
         for seq, f, t in emp_cols[:3]:
             cursor.execute("INSERT INTO MAPPING_RULE_DETAIL (MAP_ID, SEQ, FROM_COLUMN, TO_COLUMN) VALUES (:1, :2, :3, :4)", (map_id_7, seq, f, t))
         print("Case 7 (Batch Fail) added with details.")
+        
+        # 10. CASE 8: HR 직원 정보 정제 및 부서 통합 이관 (COMPLEX Example)
+        mid_var = cursor.var(oracledb.NUMBER)
+        cursor.execute("""
+            INSERT INTO MAPPING_RULES (MAP_TYPE, FROM_TABLE, TO_TABLE, USE_YN, TASK_TARGET, PRIORITY, STATUS)
+            VALUES ('COMPLEX', 'HR.EMPLOYEES E JOIN HR.DEPARTMENTS D ON E.DEPARTMENT_ID = D.DEPARTMENT_ID', 'EMP_DEPT_COMPLEX', 'Y', 'Y', 8, '')
+            RETURNING MAP_ID INTO :mid
+        """, mid=mid_var)
+        map_id_8 = int(mid_var.getvalue()[0])
+        
+        real_complex_cols = [
+            (1, 'E.EMPLOYEE_ID', 'EMP_NO'), 
+            (2, "E.FIRST_NAME || ' ' || E.LAST_NAME", 'FULL_NAME'),
+            (3, "D.DEPARTMENT_NAME", 'DEPT_NAME'),
+            (4, "CASE WHEN E.SALARY >= 10000 THEN 'GRADE_A' WHEN E.SALARY >= 5000 THEN 'GRADE_B' ELSE 'GRADE_C' END", 'SALARY_LEVEL'),
+            (5, "NVL(E.PHONE_NUMBER, 'N/A')", 'CONTACT_INFO')
+        ]
+        for seq, f, t in real_complex_cols:
+            cursor.execute("INSERT INTO MAPPING_RULE_DETAIL (MAP_ID, SEQ, FROM_COLUMN, TO_COLUMN) VALUES (:1, :2, :3, :4)", (map_id_8, seq, f, t))
+        print(f"Case 8 (Real HR Complex) added. MAP_ID: {map_id_8}")
 
         conn.commit()
         print("All stress test cases reset with valid column mappings.")

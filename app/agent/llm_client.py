@@ -1,8 +1,7 @@
 import os
 import json
-import google.generativeai as genai
-from google.api_core import exceptions as genai_exceptions
-from app.core.exceptions import LLMRateLimitError, LLMConnectionError, LLMTokenLimitError, LLMAuthenticationError
+from openai import OpenAI
+from app.core.exceptions import LLMConnectionError, LLMAuthenticationError, LLMTokenLimitError
 from app.core.logger import logger
 from dotenv import load_dotenv
 
@@ -10,33 +9,29 @@ from dotenv import load_dotenv
 env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), ".env")
 load_dotenv(env_path)
 
-def get_model():
-    """안전하게 Google Gemini 모델 클라이언트를 반환합니다."""
-    # 사용자가 .env의 OPENAI_API_KEY 자리에 구글 키를 넣었으므로 그대로 읽음
-    api_key = os.getenv("OPENAI_API_KEY") 
+def get_client():
+    """OpenAI 호환 모델 클라이언트를 반환합니다."""
+    api_key = os.getenv("OPEN_API_KEY")
+    base_url = os.getenv("LLM_BASE_URL")
     
-    if not api_key or "your_openai" in api_key:
-        error_msg = f"API Key가 설정되지 않았습니다. (Path: {env_path})"
+    if not api_key:
+        error_msg = f"API Key(OPEN_API_KEY)가 설정되지 않았습니다. (Path: {env_path})"
         logger.error(f"[LLM] {error_msg}")
         raise LLMAuthenticationError(error_msg)
     
-    # 구글 API 키 형식 확인 (AIza로 시작하는지)
-    if not api_key.startswith("AIza"):
-        logger.warning("[LLM] 입력된 키가 Google API 키 형식이 아닌 것 같습니다. 확인이 필요합니다.")
-
-    genai.configure(api_key=api_key)
-    
-    # JSON 모드 활성화를 위한 설정
-    return genai.GenerativeModel(
-        model_name='gemini-2.5-flash',
-        generation_config={"response_mime_type": "application/json"}
+    # OpenAI 호환 클라이언트 초기화 (base_url이 있으면 사내 Gateway 등으로 연결)
+    return OpenAI(
+        api_key=api_key,
+        base_url=base_url if base_url else None
     )
 
 def generate_sqls(mapping_rule, last_error=None, last_sql=None):
     """
-    Google Gemini API를 호출하여 Oracle 11g 마이그레이션 SQL과 검증 SQL을 생성합니다.
+    OpenAI 호환 API를 호출하여 Oracle 11g 마이그레이션 SQL과 검증 SQL을 생성합니다.
     """
-    model = get_model()
+    client = get_client()
+    model_name = os.getenv("LLM_MODEL") or "gpt-4o-mini"
+    
     from_table = mapping_rule.from_table
     to_table = mapping_rule.to_table
     
@@ -74,21 +69,25 @@ def generate_sqls(mapping_rule, last_error=None, last_sql=None):
         prompt += f"\n\n[이전 실행 실패 피드백]\n- 실패한 SQL: {last_sql}\n- 발생한 에러: {last_error}\n- 작업: 위 에러를 분석하여 올바르게 수정한 쿼리를 다시 생성하십시오."
 
     try:
-        response = model.generate_content(prompt)
-        result = json.loads(response.text)
+        response = client.chat.completions.create(
+            model=model_name,
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant that generates Oracle SQL in JSON format."},
+                {"role": "user", "content": prompt}
+            ],
+            response_format={"type": "json_object"} # JSON 모드 강제
+        )
+        
+        result_text = response.choices[0].message.content
+        result = json.loads(result_text)
         
         migration_sql = result.get("migration_sql", "")
         verification_sql = result.get("verification_sql", "")
         
-        logger.info(f"[LLM] SQL 생성 완료 (Model: gemini-2.5-flash)")
+        logger.info(f"[LLM] SQL 생성 완료 (Model: {model_name})")
         return migration_sql, verification_sql
 
-    except genai_exceptions.InvalidArgument as e:
-        logger.error(f"[LLM] 잘못된 인자 또는 API 키: {e}")
-        raise LLMAuthenticationError(f"Google API 인증 실패: {str(e)}")
-    except genai_exceptions.ResourceExhausted as e:
-        logger.error(f"[LLM] 할당량 초과: {e}")
-        raise LLMTokenLimitError(f"Google API 할당량 초과: {str(e)}")
     except Exception as e:
-        logger.error(f"[LLM] Gemini API 호출 중 에러: {e}")
+        logger.error(f"[LLM] API 호출 중 에러: {e}")
+        # 예외 타입에 따른 세분화 처리는 필요 시 추가
         raise LLMConnectionError(f"LLM 연결 실패: {str(e)}")
