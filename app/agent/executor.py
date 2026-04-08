@@ -44,6 +44,11 @@ def execute_migration(sql_script: str):
                             # 일반 SQL은 마지막에 세미콜론이 없어야 함 (cursor.execute 규칙)
                             cursor.execute(sub_cmd)
                         except oracledb.DatabaseError as e:
+                            # ORA-00955: 기존의 객체가 이름을 사용하고 있습니다.
+                            # CREATE 문 실행 시 이미 테이블/인덱스가 있다면 무시하고 진행
+                            if "ORA-00955" in str(e) and sub_cmd.strip().upper().startswith("CREATE"):
+                                logger.warning(f"[Executor] 객체가 이미 존재하여 건너뜁니다: {sub_cmd[:50]}...")
+                                continue
                             logger.error(f"[Executor] Command failed: {sub_cmd[:50]}...")
                             raise e
             

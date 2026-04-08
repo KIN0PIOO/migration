@@ -32,7 +32,12 @@ def get_connection():
             mode_str = "Thin Mode"
             
         # 2. 접속 시도
-        dsn = f"{DB_HOST}:{DB_PORT}/{DB_SID}"
+        # DB_HOST에이미 '/'가 포함(Easy Connect)되어 있거나 전체 DSN 주소인 경우 그대로 사용
+        if "/" in DB_HOST or "(" in DB_HOST:
+            dsn = DB_HOST
+        else:
+            dsn = f"{DB_HOST}:{DB_PORT}/{DB_SID}"
+            
         connection = oracledb.connect(
             user=DB_USER,
             password=DB_PASS,
