@@ -2,6 +2,11 @@ import sys
 import os
 import time
 from apscheduler.schedulers.blocking import BlockingScheduler
+from dotenv import load_dotenv
+
+# .env 환경 변수 로드 (현재 파일 위치 기준으로 루트 폴더의 .env 검색)
+env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+load_dotenv(env_path)
 
 # 모듈 경로 설정을 위해 실행위치/상위 디렉토리를 path에 추가
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -28,4 +33,4 @@ if __name__ == "__main__":
     try:
         scheduler.start() # 프로그램이 무한 대기 (백그라운드 스레드에서 주기적 작업 수행)
     except (KeyboardInterrupt, SystemExit):
-        logger.info("에이전트가 사용자에 의해 안전하게 종료되었습니다.")
+        logger.info("에이전트가 사용자에 의해 종료되었습니다.")

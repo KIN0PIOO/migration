@@ -9,8 +9,8 @@ def log_generated_sql(map_id: int, migration_sql: str, verification_sql: str):
     
     query = """
         UPDATE MAPPING_RULES
-        SET MIG_SQL = ?, VERIFY_SQL1 = ?, UPD_DATE = CURRENT_TIMESTAMP
-        WHERE MAP_ID = ?
+        SET MIG_SQL = :1, VERIFY_SQL = :2, UPDATED_AT = CURRENT_TIMESTAMP
+        WHERE MAP_ID = :3
     """
     
     try:
@@ -21,30 +21,24 @@ def log_generated_sql(map_id: int, migration_sql: str, verification_sql: str):
     except Exception as e:
         logger.error(f"[HistoryRepo] SQL 생성 내역 기록 중 오류: {e}")
 
-def log_business_history(map_id: int, status: str, message: str, retry_count: int = 0):
-    """(비즈니스 로그) 각 실행 상태와 디테일 메시지(에러 등)를 저장합니다."""
+def log_business_history(map_id: int, log_type: str, log_level: str, step_name: str, status: str, message: str, retry_count: int = 0, verify_seq: int = 0):
+    """(비즈니스 로그) MIGRATION_LOG 테이블에 상세 이력을 저장합니다."""
     msg_str = str(message)
     if len(msg_str) > 4000:
         msg_str = msg_str[:3996] + "..."
         
-    logger.info(f"[HistoryRepo] map_id={map_id} | Business Log 저장 -> [{status}] (Retry: {retry_count}) : {msg_str[:50]}")
-    
-    formatted_msg = f"[{status}] (Retry: {retry_count}) {msg_str}"
+    logger.info(f"[HistoryRepo] map_id={map_id} | Business Log 저장 -> [{step_name}][{status}] : {msg_str[:50]}")
     
     query = """
-        UPDATE MAPPING_RULES
-        SET LOG = CASE 
-            WHEN LOG IS NULL OR LOG = '' THEN ?
-            ELSE LOG || CHAR(10) || ? 
-        END, 
-        UPD_DATE = CURRENT_TIMESTAMP
-        WHERE MAP_ID = ?
+        INSERT INTO MIGRATION_LOG (
+            MAP_ID, LOG_TYPE, LOG_LEVEL, STEP_NAME, STATUS, MESSAGE, RETRY_COUNT, VERIFY_SEQ
+        ) VALUES (:1, :2, :3, :4, :5, :6, :7, :8)
     """
     
     try:
         with get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute(query, (formatted_msg, formatted_msg, map_id))
+            cursor.execute(query, (map_id, log_type, log_level, step_name, status, msg_str, retry_count, verify_seq))
             conn.commit()
     except Exception as e:
         logger.error(f"[HistoryRepo] 비즈니스 이력 기록 중 오류: {e}")

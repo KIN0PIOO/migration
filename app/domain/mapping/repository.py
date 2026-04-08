@@ -1,21 +1,25 @@
 from app.core.logger import logger
-from app.domain.mapping.models import MappingRule
+from app.domain.mapping.models import MappingRule, MappingDetail
 from app.core.db import get_connection
 
 def get_pending_jobs() -> list[MappingRule]:
-    """USE_YN='Y' 이고 TASK_TARGET='Y'인 작업을 EXE_ORDER 순으로 가져옵니다."""
+    """USE_YN='Y' 이고 TASK_TARGET IS NOT NULL인 작업을 PRIORITY 순으로 가져옵니다."""
     logger.debug("[Repository] DB에서 작업 대상을 스캔합니다...")
-    jobs = []
+    jobs = {}
     
     query = """
-        SELECT MAP_ID, MAP_TYPE, FROM_TABLE, TO_TABLE, FROM_COLUMNS, 
-               TO_COLUMNS, USE_YN, TASK_TARGET, EXE_ORDER, 
-               MIG_SQL, VERIFY_SQL1, VERIFY_SQL2, STATUS, LOG, 
-               UPD_DATE, CORRECT_SQL, USER_EDITED, BATCH_COUNT
-        FROM MAPPING_RULES
-        WHERE USE_YN = 'Y' 
-          AND TASK_TARGET = 'Y'
-        ORDER BY EXE_ORDER ASC
+        SELECT 
+            R.MAP_ID, R.MAP_TYPE, R.FROM_TABLE, R.TO_TABLE, 
+            R.USE_YN, R.TASK_TARGET, R.PRIORITY, 
+            R.MIG_SQL, R.VERIFY_SQL, R.STATUS, R.CORRECT_SQL, R.USER_EDITED, 
+            R.BATCH_COUNT, R.ELAPSED_SECONDS, R.RETRY_COUNT, R.VERIFY_SEQ,
+            R.CREATED_AT, R.UPDATED_AT,
+            D.MAP_DETAIL_ID, D.SEQ, D.FROM_COLUMN, D.TO_COLUMN
+        FROM MAPPING_RULES R
+        LEFT JOIN MAPPING_RULE_DETAIL D ON R.MAP_ID = D.MAP_ID
+        WHERE R.USE_YN = 'Y' 
+          AND R.TASK_TARGET IS NOT NULL
+        ORDER BY R.PRIORITY ASC, D.SEQ ASC
     """
     
     try:
@@ -25,69 +29,77 @@ def get_pending_jobs() -> list[MappingRule]:
             rows = cursor.fetchall()
             
             for row in rows:
-                rule = MappingRule(
-                    map_id=row[0],
-                    map_type=row[1],
-                    from_table=row[2],
-                    to_table=row[3],
-                    from_columns=row[4],
-                    to_columns=row[5],
-                    use_yn=row[6],
-                    task_target=row[7],
-                    exe_order=row[8],
-                    mig_sql=row[9],
-                    verify_sql1=row[10],
-                    verify_sql2=row[11],
-                    status=row[12],
-                    log=row[13],
-                    upd_date=row[14],
-                    correct_sql=row[15],
-                    user_edited=row[16],
-                    batch_count=row[17] if row[17] is not None else 0
-                )
-                jobs.append(rule)
+                map_id = row[0]
+                if map_id not in jobs:
+                    rule = MappingRule(
+                        map_id=map_id,
+                        map_type=row[1],
+                        from_table=row[2],
+                        to_table=row[3],
+                        use_yn=row[4],
+                        task_target=row[5],
+                        priority=row[6],
+                        mig_sql=row[7],
+                        verify_sql=row[8],
+                        status=row[9],
+                        correct_sql=row[10],
+                        user_edited=row[11],
+                        batch_count=row[12] if row[12] is not None else 0,
+                        elapsed_seconds=row[13] if row[13] is not None else 0,
+                        retry_count=row[14] if row[14] is not None else 0,
+                        verify_seq=row[15] if row[15] is not None else 0,
+                        created_at=row[16],
+                        updated_at=row[17],
+                        details=[]
+                    )
+                    jobs[map_id] = rule
                 
+                # 디테일 정보가 있는 경우 추가 (LEFT JOIN이므로 D.MAP_DETAIL_ID가 NULL일 수 있음)
+                if row[18] is not None:
+                    detail = MappingDetail(
+                        map_detail_id=row[18],
+                        map_id=map_id,
+                        seq=row[19],
+                        from_column=row[20],
+                        to_column=row[21]
+                    )
+                    jobs[map_id].details.append(detail)
+                    
     except Exception as e:
         logger.error(f"[Repository] 작업 대상을 조회하는 중 오류 발생: {e}")
         
-    return jobs
+    return list(jobs.values())
 
-def lock_job(map_id: int) -> bool:
-    """동시성 제어를 위해 해당 Job의 상태를 즉시 'P'(진행중) 등으로 바꿉니다."""
-    logger.debug(f"[Repository] map_id={map_id} 작업을 선점(Lock)합니다. 상태 -> RUNNING")
-    
-    query = """
-        UPDATE MAPPING_RULES 
-        SET STATUS = 'RUNNING', UPD_DATE = CURRENT_TIMESTAMP, BATCH_COUNT = COALESCE(BATCH_COUNT, 0) + 1
-        WHERE MAP_ID = ? AND USE_YN = 'Y'
-    """
-    
+def increment_batch_count(map_id: int):
+    """작업 시작 시 BATCH_COUNT를 1 증가시킵니다."""
+    logger.debug(f"[Repository] map_id={map_id} | BATCH_COUNT +1")
+    query = "UPDATE MAPPING_RULES SET BATCH_COUNT = COALESCE(BATCH_COUNT, 0) + 1, UPDATED_AT = CURRENT_TIMESTAMP WHERE MAP_ID = :1"
     try:
         with get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(query, (map_id,))
-            if cursor.rowcount > 0:
-                conn.commit()
-                return True
-            return False
+            conn.commit()
     except Exception as e:
-        logger.error(f"[Repository] 작업 선점 중 오류 발생 map_id={map_id}: {e}")
-        return False
+        logger.error(f"[Repository] BATCH_COUNT 업데이트 중 오류: {e}")
 
-def update_job_status(map_id: int, status: str):
-    """작업 통과/실패 시 상태값을 변경하고, 작업을 마쳤으므로 USE_YN을 N으로 업데이트합니다."""
-    logger.info(f"[Repository] map_id={map_id} | DB 상태를 {status} 로 업데이트하고 USE_YN = 'N' 처리합니다.")
+def update_job_status(map_id: int, status: str, elapsed_seconds: int = 0, retry_count: int = 0):
+    """작업 통과/실패 시 상태값을 변경하고, 결과를 업데이트합니다."""
+    logger.info(f"[Repository] map_id={map_id} | DB 상태를 {status} 로 업데이트 (Retry: {retry_count})")
     
     query = """
         UPDATE MAPPING_RULES 
-        SET STATUS = ?, USE_YN = 'N', UPD_DATE = CURRENT_TIMESTAMP
-        WHERE MAP_ID = ?
+        SET STATUS = :1, 
+            USE_YN = 'N', 
+            UPDATED_AT = CURRENT_TIMESTAMP, 
+            ELAPSED_SECONDS = :2,
+            RETRY_COUNT = :3
+        WHERE MAP_ID = :4
     """
     
     try:
         with get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute(query, (status, map_id))
+            cursor.execute(query, (status, elapsed_seconds, retry_count, map_id))
             conn.commit()
     except Exception as e:
         logger.error(f"[Repository] 작업 상태 업데이트 중 오류 발생 map_id={map_id}: {e}")

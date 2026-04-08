@@ -1,24 +1,55 @@
 from app.core.exceptions import DBSqlError
 from app.core.db import get_connection
 from app.core.logger import logger
-import sqlite3
+import oracledb
+import re
 
-def execute_migration(sql: str):
-    """생성된 SQL을 SQLite DB 엔진에 실행"""
-    logger.debug(f"[Executor] 실제 쿼리 실행 시작: {sql[:50]}...")
+def execute_migration(sql_script: str):
+    """생성된 SQL 스크립트를 Oracle DB 엔진에 실행 (PL/SQL 블록 및 일반 SQL 구분 강화)"""
+    logger.debug(f"[Executor] 실제 쿼리 실행 시작: {sql_script[:50]}...")
     
     try:
         with get_connection() as conn:
             cursor = conn.cursor()
             
-            # DDL (CREATE TABLE) 과 DML (INSERT) 여러 줄을 한 번에 실행하기 위해 executescript 활용
-            clean_sql = sql.strip()
-            cursor.executescript(clean_sql)
-            conn.commit()
+            # 1. '/' (슬래시) 단독 라인 기준으로 크게 분할
+            statements = re.split(r'^\s*/\s*$', sql_script, flags=re.MULTILINE)
             
-            # executescript는 rowcount를 반환하지 않으므로 로그 메세지 단순화 확인
-            logger.debug(f"[Executor] 지능형 구조 생성 및 마이그레이션 실행 성공")
+            for stmt in statements:
+                clean_stmt = stmt.strip()
+                if not clean_stmt:
+                    continue
+
+                # 주석 제거하고 실질적인 시작 단어 확인
+                content_only = re.sub(r'--.*$', '', clean_stmt, flags=re.MULTILINE)
+                content_only = re.sub(r'/\*.*?\*/', '', content_only, flags=re.DOTALL).strip()
+                
+                # 시작 단어가 BEGIN 이나 DECLARE 인지 확인
+                if re.match(r'^(BEGIN|DECLARE)', content_only, re.IGNORECASE):
+                    # PL/SQL 블록은 전체를 하나로 실행하되, 끝에 개행을 추가하여 EOF 에러 방지
+                    logger.debug(f"[Executor] PL/SQL Block execution (len={len(clean_stmt)})")
+                    try:
+                        # Oracle 11g 등 일부 환경에서 PL/SQL 블록은 끝에 개행이 있어야 안전함
+                        cursor.execute(clean_stmt + "\n")
+                    except oracledb.DatabaseError as e:
+                        raise e
+                else:
+                    # 일반 SQL은 세미콜론으로 쪼개서 실행
+                    commands = [c.strip() for c in clean_stmt.split(';') if c.strip()]
+                    for sub_cmd in commands:
+                        if sub_cmd.startswith("--"):
+                            continue
+                        logger.info(f"[Executor] Executing SQL: {sub_cmd[:70]}...")
+                        try:
+                            # 일반 SQL은 마지막에 세미콜론이 없어야 함 (cursor.execute 규칙)
+                            cursor.execute(sub_cmd)
+                        except oracledb.DatabaseError as e:
+                            logger.error(f"[Executor] Command failed: {sub_cmd[:50]}...")
+                            raise e
+            
+            conn.commit()
+            logger.info(f"[Executor] All commands executed and committed successfully.")
             
     except Exception as e:
         logger.error(f"[Executor] 마이그레이션 쿼리 실패: {str(e)}")
-        raise DBSqlError(f"SQLite 쿼리 실행 에러: {str(e)}")
+        raise DBSqlError(f"Oracle 쿼리 실행 에러: {str(e)}")

@@ -1,6 +1,6 @@
 from app.core.logger import logger
 from app.agent.orchestrator import MigrationOrchestrator
-from app.domain.mapping.repository import get_pending_jobs, lock_job
+from app.domain.mapping.repository import get_pending_jobs
 from app.core.exceptions import BatchAbortError
 import traceback
 
@@ -19,12 +19,13 @@ def poll_database():
         logger.info(f"처리 대상 작업 발견: {len(jobs)}건")
         
         for job in jobs:
-            if lock_job(job.map_id):
-                try:
-                    orchestrator.process_job(job)
-                except BatchAbortError as abort_err:
-                    logger.critical(f"[BATCH_ABORT] 스케줄러가 배치를 심각한 오류로 조기 중단합니다: {abort_err}")
-                    break
+            try:
+                orchestrator.process_job(job)
+            except BatchAbortError as abort_err:
+                logger.critical(f"[BATCH_ABORT] 스케줄러가 배치를 심각한 오류로 조기 중단합니다: {abort_err}")
+                logger.critical("시스템 설정을 확인한 후 에이전트를 재가동하십시오. 프로그램을 강제 종료합니다.")
+                import os
+                os._exit(1) # APScheduler의 예외 핸들링을 우회하여 프로세스 즉시 종료
                 
     except Exception as e:
         logger.error(f"[Scheduler] 시스템 에러 발생: {str(e)}")
