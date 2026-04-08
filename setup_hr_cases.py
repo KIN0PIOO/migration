@@ -85,10 +85,20 @@ def reset_sequences(cursor):
         try:
             cursor.execute(f"DROP SEQUENCE {seq}")
             print(f"Dropped sequence {seq}")
-        except oracledb.DatabaseError:
-            pass
-        cursor.execute(f"CREATE SEQUENCE {seq} START WITH 1 INCREMENT BY 1 NOCACHE NOCYCLE")
-        print(f"Created sequence {seq} starting with 1")
+        except oracledb.DatabaseError as e:
+            if "ORA-02289" in str(e): # sequence does not exist
+                pass
+            else:
+                print(f"Warning dropping sequence {seq}: {e}")
+        
+        try:
+            cursor.execute(f"CREATE SEQUENCE {seq} START WITH 1 INCREMENT BY 1 NOCACHE NOCYCLE")
+            print(f"Created sequence {seq} starting with 1")
+        except oracledb.DatabaseError as e:
+            if "ORA-00955" in str(e): # name already used
+                print(f"Sequence {seq} already exists.")
+            else:
+                raise e
 
 def setup_cases():
     print("Starting Setup for SCOTT migration Environment...")
@@ -122,13 +132,12 @@ def setup_cases():
                 pass
 
         # --- CASE 1: EMP 전체 이관 (SIMPLE) ---
-        mid_var = cursor.var(oracledb.NUMBER)
+        cursor.execute("SELECT MAPPING_RULES_SEQ.NEXTVAL FROM DUAL")
+        map_id_1 = int(cursor.fetchone()[0])
         cursor.execute("""
             INSERT INTO MAPPING_RULES (MAP_ID, MAP_TYPE, FROM_TABLE, TO_TABLE, USE_YN, TASK_TARGET, PRIORITY, STATUS)
-            VALUES (MAPPING_RULES_SEQ.NEXTVAL, 'SIMPLE', 'EMP', 'TGT_EMP', 'Y', 'Y', 1, '')
-            RETURNING MAP_ID INTO :mid
-        """, mid=mid_var)
-        map_id_1 = int(mid_var.getvalue()[0])
+            VALUES (:1, 'SIMPLE', 'EMP', 'TGT_EMP', 'Y', 'Y', 1, '')
+        """, (map_id_1,))
         
         emp_cols = [
             (1, 'EMPNO', 'EMP_ID'), (2, 'ENAME', 'NAME'), (3, 'JOB', 'ROLE'),
@@ -143,13 +152,12 @@ def setup_cases():
         print(f"Case 1 (EMP) added. MAP_ID: {map_id_1}")
 
         # --- CASE 2: DEPT 전체 이관 (SIMPLE) ---
-        mid_var = cursor.var(oracledb.NUMBER)
+        cursor.execute("SELECT MAPPING_RULES_SEQ.NEXTVAL FROM DUAL")
+        map_id_2 = int(cursor.fetchone()[0])
         cursor.execute("""
             INSERT INTO MAPPING_RULES (MAP_ID, MAP_TYPE, FROM_TABLE, TO_TABLE, USE_YN, TASK_TARGET, PRIORITY, STATUS)
-            VALUES (MAPPING_RULES_SEQ.NEXTVAL, 'SIMPLE', 'DEPT', 'TGT_DEPT', 'Y', 'Y', 2, '')
-            RETURNING MAP_ID INTO :mid
-        """, mid=mid_var)
-        map_id_2 = int(mid_var.getvalue()[0])
+            VALUES (:1, 'SIMPLE', 'DEPT', 'TGT_DEPT', 'Y', 'Y', 2, '')
+        """, (map_id_2,))
         
         dept_cols = [
             (1, 'DEPTNO', 'DEPT_ID'), (2, 'DNAME', 'DEPT_NAME'), (3, 'LOC', 'LOCATION')
@@ -162,13 +170,12 @@ def setup_cases():
         print(f"Case 2 (DEPT) added. MAP_ID: {map_id_2}")
 
         # --- CASE 3: EMP + DEPT 조인 이관 (COMPLEX) ---
-        mid_var = cursor.var(oracledb.NUMBER)
+        cursor.execute("SELECT MAPPING_RULES_SEQ.NEXTVAL FROM DUAL")
+        map_id_3 = int(cursor.fetchone()[0])
         cursor.execute("""
             INSERT INTO MAPPING_RULES (MAP_ID, MAP_TYPE, FROM_TABLE, TO_TABLE, USE_YN, TASK_TARGET, PRIORITY, STATUS)
-            VALUES (MAPPING_RULES_SEQ.NEXTVAL, 'COMPLEX', 'EMP E JOIN DEPT D ON E.DEPTNO = D.DEPTNO', 'TGT_EMP_DEPT', 'Y', 'Y', 3, '')
-            RETURNING MAP_ID INTO :mid
-        """, mid=mid_var)
-        map_id_3 = int(mid_var.getvalue()[0])
+            VALUES (:1, 'COMPLEX', 'EMP E JOIN DEPT D ON E.DEPTNO = D.DEPTNO', 'TGT_EMP_DEPT', 'Y', 'Y', 3, '')
+        """, (map_id_3,))
         
         join_cols = [
             (1, 'E.EMPNO', 'EMP_ID'), 
@@ -185,13 +192,12 @@ def setup_cases():
 
         # --- 스트레스 테스트 시나리오 (EMP 기반) ---
         for i, tbl_name in enumerate(['FAIL_ONCE_EMP', 'FAIL_TWICE_EMP', 'FAIL_ALWAYS_EMP', 'BATCH_FAIL_EMP'], 4):
-            mid_var = cursor.var(oracledb.NUMBER)
+            cursor.execute("SELECT MAPPING_RULES_SEQ.NEXTVAL FROM DUAL")
+            mid = int(cursor.fetchone()[0])
             cursor.execute("""
                 INSERT INTO MAPPING_RULES (MAP_ID, MAP_TYPE, FROM_TABLE, TO_TABLE, USE_YN, TASK_TARGET, PRIORITY, STATUS)
-                VALUES (MAPPING_RULES_SEQ.NEXTVAL, 'SIMPLE', :1, :2, 'Y', 'Y', :3, '')
-                RETURNING MAP_ID INTO :mid
-            """, (tbl_name, f'TGT_CASE_{i}', i, mid_var))
-            mid = int(mid_var.getvalue()[0])
+                VALUES (:1, 'SIMPLE', :2, :3, 'Y', 'Y', :4, '')
+            """, (mid, tbl_name, f'TGT_CASE_{i}', i))
             for seq, f, t in emp_cols[:3]:
                 cursor.execute("""
                     INSERT INTO MAPPING_RULE_DETAIL (MAP_DETAIL_ID, MAP_ID, SEQ, FROM_COLUMN, TO_COLUMN) 
@@ -199,13 +205,12 @@ def setup_cases():
                 """, (mid, seq, f, t))
 
         # --- CASE 8: EMP + SALGRADE 복합 변환 (COMPLEX Example) ---
-        mid_var = cursor.var(oracledb.NUMBER)
+        cursor.execute("SELECT MAPPING_RULES_SEQ.NEXTVAL FROM DUAL")
+        map_id_8 = int(cursor.fetchone()[0])
         cursor.execute("""
             INSERT INTO MAPPING_RULES (MAP_ID, MAP_TYPE, FROM_TABLE, TO_TABLE, USE_YN, TASK_TARGET, PRIORITY, STATUS)
-            VALUES (MAPPING_RULES_SEQ.NEXTVAL, 'COMPLEX', 'EMP E JOIN SALGRADE S ON E.SAL BETWEEN S.LOSAL AND S.HISAL', 'EMP_SAL_COMPLEX', 'Y', 'Y', 8, '')
-            RETURNING MAP_ID INTO :mid
-        """, mid=mid_var)
-        map_id_8 = int(mid_var.getvalue()[0])
+            VALUES (:1, 'COMPLEX', 'EMP E JOIN SALGRADE S ON E.SAL BETWEEN S.LOSAL AND S.HISAL', 'EMP_SAL_COMPLEX', 'Y', 'Y', 8, '')
+        """, (map_id_8,))
         
         real_complex_cols = [
             (1, 'E.EMPNO', 'EMP_ID'), 

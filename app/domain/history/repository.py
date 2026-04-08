@@ -31,8 +31,8 @@ def log_business_history(map_id: int, log_type: str, log_level: str, step_name: 
     
     query = """
         INSERT INTO MIGRATION_LOG (
-            MAP_ID, LOG_TYPE, LOG_LEVEL, STEP_NAME, STATUS, MESSAGE, RETRY_COUNT, VERIFY_SEQ
-        ) VALUES (:1, :2, :3, :4, :5, :6, :7, :8)
+            LOG_ID, MAP_ID, LOG_TYPE, LOG_LEVEL, STEP_NAME, STATUS, MESSAGE, RETRY_COUNT, VERIFY_SEQ
+        ) VALUES (MIGRATION_LOG_SEQ.NEXTVAL, :1, :2, :3, :4, :5, :6, :7, :8)
     """
     
     try:
